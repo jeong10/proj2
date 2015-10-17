@@ -1,0 +1,175 @@
+package bufmgr;
+
+import global.Convert;
+import global.GlobalConst;
+import global.Minibase;
+import global.Page;
+import global.PageId;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.RandomAccessFile;
+
+import chainexception.ChainException;
+
+/*
+	BufMgr class.
+*/
+public class BufMgr {
+
+	//	entry for buffer frame descriptors
+	private class descriptor {
+		public PageId page_number;
+		public int pin_count;
+		public boolean dirtybit;
+	};
+
+	//	entry for hash table of frames
+	private class bucket {
+		public PageId page_number;
+		public int frame_number;
+	};
+
+	private byte[] bufPool;					// stores data of pages, as bytes
+	private descriptor[] bufDescr;	// descriptor of frames
+	private bucket[] directory;			// hash function: h(page #) = (a*[page #]+b) mod HTSIZE
+
+	private float[] crf;						// crf value for LRFU policy
+	private int[][] ref;						// stores when pages are referenced
+
+	private int numbufs;
+
+	/*
+		Constructor.
+	*/
+	public BufMgr(int numbufs, int lookAheadSize, String replacementPolicy)
+		throws ChainException {
+
+		this.numbufs = numbufs;
+		int htsize = 521;
+		int numrefs = 1000;
+		replacementPolicy = "LRFU";
+
+		bufPool = new byte[GlobalConst.PAGE_SIZE * numbufs];
+		bufDescr = new descriptor[numbufs];
+		directory = new bucket[htsize];
+		crf = new float[numbufs];
+		ref = new int[numbufs][numrefs];
+
+		for (int i=0; i<bufPool.length; i++) {
+			bufPool[i] = 0;
+		}
+
+		for (int i=0; i<numbufs; i++) {
+			bufDescr[i] = new descriptor();
+			bufDescr[i].page_number = null;
+			bufDescr[i].pin_count = 0;
+			bufDescr[i].dirtybit = false;
+
+			crf[i] = 0.0f;
+			for (int j=0; j<numrefs; j++) {
+				ref[i][j] = -1;
+			}
+		}
+
+		for (int i=0; i<htsize; i++) {
+			directory[i] = new bucket();
+			directory[i].page_number = null;
+			directory[i].frame_number = -1;
+		}
+	};
+
+	public void pinPage(PageId pageno, Page page, boolean emptyPage)
+		throws PagePinnedException {
+		
+	};
+
+	public void unpinPage(PageId pageno, boolean dirty) 
+		throws PageUnpinnedException {
+		
+		//	throw exception when try to unpin a page that is not pinned
+		for (int i=0; i<numbufs; i++) {
+			if (pageno == bufDescr[i].page_number) {
+				if (bufDescr[i].pin_count == 0) {
+					throw new PageUnpinnedException (null, "BUFMGR: PAGE_NOT_PINNED.");
+				}
+			}
+		}
+	};
+	 
+
+	public PageId newPage(Page firstpage, int howmany) 
+		throws ChainException {
+		// P = firstpage
+
+		// DB.allocate new pages
+
+		// in buffer pool, find a frame F for P
+		// if found
+		// place P
+		// P.pin_count++
+		// return P.PageId
+
+		// else (buffer pool is full)
+		// DB.deallocate pages
+		// return null
+
+		return null;
+	};
+
+	public void freePage(PageId globalPageId) 
+		throws ChainException {};
+
+	public void flushPage(PageId pageid) {};
+
+	public void flushAllPages() {};
+
+	public int getNumBuffers() {
+		return numbufs;
+	}
+
+	public int getNumUnpinned() {
+		return 0;
+	}
+
+
+
+	//	exceptions
+
+	/*
+		BufferPoolExceededException
+	*/
+	public class BufferPoolExceededException extends ChainException {
+			public BufferPoolExceededException (ChainException e, String msg) {
+				super(e, msg);
+			}
+	};
+
+	/*
+		HashEntryNotFoundException
+	*/
+	public class HashEntryNotFoundException extends ChainException {
+			public HashEntryNotFoundException (ChainException e, String msg) {
+				super(e, msg);
+			}
+	};
+
+	/*
+		PagePinnedException
+	*/
+	public class PagePinnedException extends ChainException {
+			public PagePinnedException (ChainException e, String msg) {
+				super(e, msg);
+			}
+	};
+
+	/*
+		PageUnpinnedException
+	*/
+	public class PageUnpinnedException extends ChainException {
+			public PageUnpinnedException (ChainException e, String msg) {
+				super(e, msg);
+			}
+	};
+
+};
