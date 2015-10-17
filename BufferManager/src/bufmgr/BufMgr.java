@@ -131,45 +131,4 @@ public class BufMgr {
 	public int getNumUnpinned() {
 		return 0;
 	}
-
-
-
-	//	exceptions
-
-	/*
-		BufferPoolExceededException
-	*/
-	public class BufferPoolExceededException extends ChainException {
-			public BufferPoolExceededException (ChainException e, String msg) {
-				super(e, msg);
-			}
-	};
-
-	/*
-		HashEntryNotFoundException
-	*/
-	public class HashEntryNotFoundException extends ChainException {
-			public HashEntryNotFoundException (ChainException e, String msg) {
-				super(e, msg);
-			}
-	};
-
-	/*
-		PagePinnedException
-	*/
-	public class PagePinnedException extends ChainException {
-			public PagePinnedException (ChainException e, String msg) {
-				super(e, msg);
-			}
-	};
-
-	/*
-		PageUnpinnedException
-	*/
-	public class PageUnpinnedException extends ChainException {
-			public PageUnpinnedException (ChainException e, String msg) {
-				super(e, msg);
-			}
-	};
-
 };
