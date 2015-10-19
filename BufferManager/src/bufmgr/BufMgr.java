@@ -34,7 +34,7 @@ public class BufMgr {
 	private bucket[] directory;			// hash table of pageId and frame number
 
 	private float[] crf;						// crf value for LRFU policy
-	private int[][] ref;						// stores when pages are referenced
+	private float[][] ref;						// stores when pages are referenced
 
 	private int[] replaceCandidates;
 
@@ -49,7 +49,7 @@ public class BufMgr {
 
 	// variables for LRFU policy
 	private int numrefs;
-	private int time;
+	private float time;
 
 	/*
 		Constructor.
@@ -82,7 +82,7 @@ public class BufMgr {
 		this.numbufs = numbufs;
 		this.numUnpinned = numbufs;
 		this.htsize = minPrime;
-		this.time = 1;
+		this.time = 1.0f;
 		this.numrefs = 1000;
 		replacementPolicy = "LRFU";
 
@@ -90,7 +90,7 @@ public class BufMgr {
 		bufDescr = new descriptor[numbufs];
 		directory = new bucket[htsize];
 		crf = new float[numbufs];
-		ref = new int[numbufs][numrefs];
+		ref = new float[numbufs][numrefs];
 		replaceCandidates = new int[numbufs];
 
 		for (int i=0; i<bufPool.length; i++) {
@@ -99,7 +99,7 @@ public class BufMgr {
 
 		for (int i=0; i<numbufs; i++) {
 			bufDescr[i] = new descriptor();
-			bufDescr[i].page_number = new PageId();
+			bufDescr[i].page_number = new PageId(-1);
 			bufDescr[i].pin_count = 0;
 			bufDescr[i].dirtybit = false;
 
@@ -112,7 +112,7 @@ public class BufMgr {
 		}
 		for (int i=0; i<htsize; i++) {
 			directory[i] = new bucket();
-			directory[i].page_number = new PageId();
+			directory[i].page_number = new PageId(-1);
 			directory[i].frame_number = -1;
 		}
 	};
@@ -122,12 +122,14 @@ public class BufMgr {
 		pinPage.
 	*/
 	public void pinPage(PageId pageno, Page page, boolean emptyPage)
-		throws PagePinnedException {
-
+		throws BufferPoolExceededException {
+//for (int i=0; i<10; i++){
+//	System.out.print(bufDescr[i].page_number.pid + " ");
+//}
+//System.out.println("");
 			// throw exception if all pages were already pinned
 			if (numUnpinned == 0) {
-//System.out.println("page pinned exception here");
-				throw new PagePinnedException (null, "bufmgr.PagePinnedException");
+				throw new BufferPoolExceededException (null, "bufmgr.BufferPoolExceededException");
 			}
 		
 			int hash_index = hash(pageno);
@@ -135,8 +137,8 @@ public class BufMgr {
 			int frame_index = directory[hash_index].frame_number;
 
 			// if page in buffer pool, increment pin_count
-			if (pageno == page_id && frame_index >= 0) {
-				if (pageno == bufDescr[frame_index].page_number)
+			if (pageno == page_id && frame_index > -1) {
+				if (pageno == bufDescr[frame_index].page_number) {
 
 					// if pin_count was 0, remove from replaceCandidates
 					if (bufDescr[frame_index].pin_count == 0) {
@@ -163,13 +165,13 @@ public class BufMgr {
 					crf[frame_index] = 0.0f;
 
 					for (int i=0; i<numrefs; i++) {
-						if (ref[frame_index][i] == -1)
-							break;
-						crf[frame_index] += (1.0f/(time -ref[frame_index][i] +1));
+						if (ref[frame_index][i] > 0) {
+							crf[frame_index] += 1.0f/(time -ref[frame_index][i] +1);
+						}
 					}
+				}
 			}
 			else {
-
 				// pick F from replaceCandidates
 				// F = page (in frame) with min CRF value
 				float min = crf[0];
@@ -199,12 +201,10 @@ public class BufMgr {
 						flushPage(bufDescr[frame_index_replace].page_number);
 					}
 
-					directory[hash_index].frame_number = directory[hash_index_replace].frame_number;
+					directory[hash_index].frame_number = frame_index_replace;
 
 					directory[hash_index_replace].page_number = new PageId();
 					directory[hash_index_replace].frame_number = -1;
-
-
 				}
 				else {
 					directory[hash_index].frame_number = frame_index_replace;
@@ -225,7 +225,7 @@ public class BufMgr {
 				
 			}
 			
-			time++;
+			time += 1.0f;
 		};
 
 	/*
@@ -313,7 +313,7 @@ System.out.println("buffer full?");
 		// if not, find a frame in the buffer pool
 		for (int i=0; i<bufDescr.length; i++) {
 			if (bufDescr[i].page_number.pid == -1) {
-				bufDescr[i].page_number = pageno;
+				bufDescr[i].page_number = new PageId(pageno.pid);
 				bufDescr[i].pin_count = 1;
 				bufDescr[i].dirtybit = false;
 
@@ -321,14 +321,13 @@ System.out.println("buffer full?");
 
 				crf[i] = 1.0f;
 				ref[i][0] = time;
-				time++;
-
-				numUnpinned--;
+				time += 1.0f;
 
 				// remove from replacement candidates
 				for (int j=0; j<replaceCandidates.length; j++) {
 					if (replaceCandidates[j] == pageno.pid) {
 						replaceCandidates[j] = -1;
+						numUnpinned--;
 					}
 				}
 
@@ -349,9 +348,10 @@ System.out.println("buffer full?");
 
 				// throw exception when this page is already pinned
 				int hash_index = hash(globalPageId);
+				PageId page_id = directory[hash_index].page_number;
 				int frame_index = directory[hash_index].frame_number;
 			
-				if (frame_index > -1) {
+				if (page_id == globalPageId && frame_index > -1) {
 					if (bufDescr[frame_index].pin_count > 0) {
 						throw new PagePinnedException(null, "bufmgr.PagePinnedException");
 					}
