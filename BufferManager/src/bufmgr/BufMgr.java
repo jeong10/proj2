@@ -36,10 +36,11 @@ public class BufMgr {
 	private float[] crf;						// crf value for LRFU policy
 	private int[][] ref;						// stores when pages are referenced
 
-	private PageId[] replaceCandidates;
+	private int[] replaceCandidates;
 
 	private int numbufs;						// number of buffers
-
+	private int numUnpinned;				// number of unpinned pages
+	private int p_id;
 
 	// variables for hash table
 	private int htsize;
@@ -55,32 +56,32 @@ public class BufMgr {
 	*/
 	public BufMgr(int numbufs, int lookAheadSize, String replacementPolicy) {
 
-		// pick max prime number < numbufs
-		int[] primes = new int[numbufs];
-		int index = 0;
-		for (int i=0; i<numbufs; i++)
-			primes[i] = 0;
+		// pick min prime number > numbufs
+		int minPrime = 0;
+		int z = numbufs;
 
-		for (int i=0; i<numbufs; i++) {
+		while(true) {
 			boolean isPrime = true;
 
-			for (int j=2; j<i; j++) {
-				if (i % j == 0) {
+			for (int j=2; j<z; j++) {
+				if (z % j == 0) {
 					isPrime = false;
 					break;
 				}
 			}
 
 			if (isPrime) {
-				primes[index] = i;
-				index++;
+				minPrime = z;
+				break;
 			}
+
+			z++;
 		}
 
-		Arrays.sort(primes);
-
+		this.p_id = -1;
 		this.numbufs = numbufs;
-		this.htsize = primes[primes.length-1];
+		this.numUnpinned = numbufs;
+		this.htsize = minPrime;
 		this.time = 1;
 		this.numrefs = 1000;
 		replacementPolicy = "LRFU";
@@ -90,7 +91,7 @@ public class BufMgr {
 		directory = new bucket[htsize];
 		crf = new float[numbufs];
 		ref = new int[numbufs][numrefs];
-		replaceCandidates = new PageId[numbufs];
+		replaceCandidates = new int[numbufs];
 
 		for (int i=0; i<bufPool.length; i++) {
 			bufPool[i] = 0;
@@ -98,7 +99,7 @@ public class BufMgr {
 
 		for (int i=0; i<numbufs; i++) {
 			bufDescr[i] = new descriptor();
-			bufDescr[i].page_number = null;
+			bufDescr[i].page_number = new PageId();
 			bufDescr[i].pin_count = 0;
 			bufDescr[i].dirtybit = false;
 
@@ -106,12 +107,12 @@ public class BufMgr {
 			for (int j=0; j<numrefs; j++) {
 				ref[i][j] = -1;
 			}
-			replaceCandidates[i] = null;
-		}
 
+			replaceCandidates[i] = i;
+		}
 		for (int i=0; i<htsize; i++) {
 			directory[i] = new bucket();
-			directory[i].page_number = null;
+			directory[i].page_number = new PageId();
 			directory[i].frame_number = -1;
 		}
 	};
@@ -122,14 +123,32 @@ public class BufMgr {
 	*/
 	public void pinPage(PageId pageno, Page page, boolean emptyPage)
 		throws PagePinnedException {
+
+			// throw exception if all pages were already pinned
+			if (numUnpinned == 0) {
+//System.out.println("page pinned exception here");
+				throw new PagePinnedException (null, "bufmgr.PagePinnedException");
+			}
 		
 			int hash_index = hash(pageno);
 			PageId page_id = directory[hash_index].page_number;
 			int frame_index = directory[hash_index].frame_number;
 
 			// if page in buffer pool, increment pin_count
-			if (pageno == page_id) {
+			if (pageno == page_id && frame_index >= 0) {
 				if (pageno == bufDescr[frame_index].page_number)
+
+					// if pin_count was 0, remove from replaceCandidates
+					if (bufDescr[frame_index].pin_count == 0) {
+						for (int i=0; i<replaceCandidates.length; i++) {
+							if (replaceCandidates[i] == bufDescr[frame_index].page_number.pid) {
+								replaceCandidates[i] = -1;
+								numUnpinned--;
+								break;
+							}
+						}
+					}
+
 					bufDescr[frame_index].pin_count++;
 
 					// add reference time
@@ -149,38 +168,50 @@ public class BufMgr {
 						crf[frame_index] += (1.0f/(time -ref[frame_index][i] +1));
 					}
 			}
-
-			// replace a frame F (chosen by LRFU policy) by P
 			else {
 
-				// pick frame F for replacement
+				// pick F from replaceCandidates
 				// F = page (in frame) with min CRF value
 				float min = crf[0];
 				int frame_index_replace = 0;
-				for (int i=0; i<crf.length; i++) {
-					if (crf[i] < min) {
-						min = crf[i];
-						frame_index_replace = i;
+
+				for (int i=0; i<replaceCandidates.length; i++) {
+					if (replaceCandidates[i] != -1) {
+
+						for (int j=0; j<numbufs; j++) {
+								if (crf[j] < min) {
+									min = crf[j];
+									frame_index_replace = j;
+								}
+						}
 					}
 				}
 
-				PageId pageIdToReplace = bufDescr[frame_index_replace].page_number;
-				int hash_index_replace = hash(pageIdToReplace);
-
-				// if dirtybit=1 flush page to disk
-				if (bufDescr[frame_index_replace].dirtybit == true) {
-					flushPage(bufDescr[frame_index_replace].page_number);
-				}
-
 				// remove any content related to F
-				// add P to where F was
-				// bufPool[] not yet implemented
+				// replace F by P
+				PageId pageIdToReplace = bufDescr[frame_index_replace].page_number;
+
+				if (pageIdToReplace != null) {
+					int hash_index_replace = hash(pageIdToReplace);
+
+					// if dirtybit=1 flush page to disk
+					if (bufDescr[frame_index_replace].dirtybit == true) {
+						flushPage(bufDescr[frame_index_replace].page_number);
+					}
+
+					directory[hash_index].frame_number = directory[hash_index_replace].frame_number;
+
+					directory[hash_index_replace].page_number = new PageId();
+					directory[hash_index_replace].frame_number = -1;
+
+
+				}
+				else {
+					directory[hash_index].frame_number = frame_index_replace;
+				}
+				numUnpinned--;
 				directory[hash_index].page_number = pageno;
-				directory[hash_index].frame_number = directory[hash_index_replace].frame_number;
-
-				directory[hash_index_replace].page_number = null;
-				directory[hash_index_replace].frame_number = -1;
-
+				
 				bufDescr[frame_index_replace].page_number = pageno;
 				bufDescr[frame_index_replace].pin_count = 1;
 				bufDescr[frame_index_replace].dirtybit = false;
@@ -191,26 +222,11 @@ public class BufMgr {
 					ref[frame_index_replace][i] = -1;
 				}
 				ref[frame_index_replace][0] = time;
+				
 			}
 			
 			time++;
-			// if all pages already pinned
-			boolean allPinned = true;
-			for (int i=0; i<numbufs; i++) {
-				if (replaceCandidates[i] != null) {
-					int hashIndex = hash(replaceCandidates[i]);
-					int frameIndex = directory[hashIndex].frame_number;
-
-					if (bufDescr[frameIndex].pin_count > 0) {
-						allPinned = false;
-						break;
-					}
-				}
-			}
-			if (allPinned) {
-				throw new PagePinnedException (null, "bufmgr.PagePinnedException");
-			}
-	};
+		};
 
 	/*
 		unpinPage.
@@ -222,26 +238,44 @@ public class BufMgr {
 		int frame_index = directory[hash_index].frame_number;
 
 		//	throw exception when try to unpin a page that is not pinned
-		if (bufDescr[frame_index].pin_count == 0) {
-			throw new PageUnpinnedException (null, "BUFMGR: PAGE_NOT_PINNED.");
-		}
+		if (frame_index > -1) {
+			if (bufDescr[frame_index].pin_count == 0) {
+				throw new PageUnpinnedException (null, "BUFMGR: PAGE_NOT_PINNED.");
+			}
 
-		// set dirty bit if page is already modified
-		if (dirty == true) {
-			bufDescr[frame_index].dirtybit = true;
-		}
+			// set dirty bit if page is already modified
+			if (dirty == true) {
+				bufDescr[frame_index].dirtybit = true;
+			}
 
-		// decrement pin_count
-		if (bufDescr[frame_index].pin_count > 0) {
-			bufDescr[frame_index].pin_count--;
-		}
+			// decrement pin_count
+			if (bufDescr[frame_index].pin_count > 0) {
+				bufDescr[frame_index].pin_count--;
+			}
 		
-		// add pageno to replaceCandidates if decrementing pin_count results in 0
-		if (bufDescr[frame_index].pin_count == 0) {
-			for (int i=0; i<numbufs; i++) {
-				if (replaceCandidates[i] == null) {
-					replaceCandidates[i] = pageno;
-					break;
+			// add pageno to replaceCandidates if decrementing pin_count results in 0
+			if (bufDescr[frame_index].pin_count == 0) {
+				numUnpinned++;
+
+				boolean found = false;
+
+				// find if this pageno already exists
+				for (int i=0; i<replaceCandidates.length; i++) {
+					if (replaceCandidates[i] == pageno.pid) {
+						found = true;
+						break;
+					}
+				}
+
+				// if not, add to replaceCandidates
+				if (found == false) {
+					for (int i=0; i<replaceCandidates.length; i++) {
+						if (replaceCandidates[i] == -1) {
+							replaceCandidates[i] = pageno.pid;
+							
+							break;
+						}
+					}
 				}
 			}
 		}
@@ -254,36 +288,74 @@ public class BufMgr {
 		throws ChainException, IOException {
 
 		PageId pageno = Minibase.DiskManager.allocate_page(howmany);
+		p_id++;
+		pageno.pid = p_id;
 
 		int hash_index = hash(pageno);
+		directory[hash_index].page_number = pageno;
 
-		// find frame in the buffer pool
-		if (directory[hash_index].page_number == null) {
-			
-			directory[hash_index].page_number = pageno;
-			
-
-			pinPage(pageno, firstpage, false);
-
-			return pageno;
+		// check if buffer pool is full
+		boolean isNotFull = true;
+		for (int i=0; i<bufDescr.length; i++) {
+			if (bufDescr[i].page_number != null) {
+				if (bufDescr[i].page_number.pid > -1) {
+					isNotFull = false;
+					break;
+				}
+			}
 		}
-
-		// else (buffer pool is full)
-		else {
+		if (isNotFull = false) {
+System.out.println("buffer full?");
 			Minibase.DiskManager.deallocate_page(pageno, howmany);
 			return null;
 		}
+
+		// if not, find a frame in the buffer pool
+		for (int i=0; i<bufDescr.length; i++) {
+			if (bufDescr[i].page_number.pid == -1) {
+				bufDescr[i].page_number = pageno;
+				bufDescr[i].pin_count = 1;
+				bufDescr[i].dirtybit = false;
+
+				directory[hash_index].frame_number = i;
+
+				crf[i] = 1.0f;
+				ref[i][0] = time;
+				time++;
+
+				numUnpinned--;
+
+				// remove from replacement candidates
+				for (int j=0; j<replaceCandidates.length; j++) {
+					if (replaceCandidates[j] == pageno.pid) {
+						replaceCandidates[j] = -1;
+					}
+				}
+
+				break;
+			}
+		}
+
+		return pageno;
 	};
 
+	/*
+		freePage
+	*/
 	public void freePage(PageId globalPageId)
 		throws PagePinnedException {
 			
-			// throw exception when this page is already pinned
-			int hash_index = (a*globalPageId.pid +b) % htsize;
-			int frame_index = directory[hash_index].frame_number;
-			int pinCount = bufDescr[frame_index].pin_count;
-			if (pinCount > 0) {
-				throw new PagePinnedException(null, "bufmgr.PagePinnedException");
+			if (globalPageId.pid > -1) {
+
+				// throw exception when this page is already pinned
+				int hash_index = hash(globalPageId);
+				int frame_index = directory[hash_index].frame_number;
+			
+				if (frame_index > -1) {
+					if (bufDescr[frame_index].pin_count > 0) {
+						throw new PagePinnedException(null, "bufmgr.PagePinnedException");
+					}
+				}
 			}
 	};
 
@@ -296,7 +368,7 @@ public class BufMgr {
 	}
 
 	public int getNumUnpinned() {
-		return 0;
+		return numUnpinned;
 	}
 
 	/*
