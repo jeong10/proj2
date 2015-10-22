@@ -154,7 +154,8 @@ numUnpinned--;
 						for (int j=0; j<ref_size; j++) {
 							if (ref[hashed][j] != -1) {
 /*
-* buggy spot. The references are now showing
+* buggy spot. The references do not seemed to be stored
+* where it supposed to be.
 */
 								crf[hashed] += 1.0f/(time -ref[hashed][j] +1.0f);
 							}
