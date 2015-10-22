@@ -49,14 +49,18 @@ public class BufMgr {
 	int a = 16;
 	int b = 24;
 
-	boolean f = false;
-	boolean ff = false;
+	boolean f;
+	boolean ff;
 
 
 	/*
 		Constructor.
 	*/
 	public BufMgr(int numbufs, int lookAheadSize, String replacementPolicy) {
+f=false;
+ff=false;
+		this.numbufs = numbufs;
+		numUnpinned = numbufs;
 
 		// set replacement policy
 		replacementPolicy = "LRFU";
@@ -70,10 +74,6 @@ public class BufMgr {
 			bufDescr[i].pin_count = 0;
 			bufDescr[i].dirtybit = false;
 		}
-
-		this.numbufs = numbufs;
-		numUnpinned = numbufs;
-
 
 		// initialize empty frame contents
 		bufData = new byte[GlobalConst.PAGE_SIZE * numbufs];
@@ -89,11 +89,13 @@ public class BufMgr {
 	*/
 	public void pinPage(PageId pageno, Page page, boolean emptyPage)
 		throws ChainException, IOException, BufferPoolExceededException, InvalidPageNumberException {
-		if (f == true && ff == true) {
 
+if (f==true && ff==true){
 			// throw exception if pid is invalid
-			if (pageno.pid < 0 || pageno.pid > numpages) {
-				throw new InvalidPageNumberException (null, "bufmgr.InvalidPageNumberException");
+			if (numpages > 0) {
+				if (pageno.pid < 0 || pageno.pid > numpages) {
+					throw new InvalidPageNumberException (null, "bufmgr.InvalidPageNumberException");
+				}
 			}
 
 			// throw exception if all pages were already pinned
@@ -110,25 +112,24 @@ public class BufMgr {
 
 
 			// find frame number
-			int hash_index = hash(pageno);
-			directory[hash_index].page_number = pageno;
-			int frame_index = directory[hash_index].frame_number;
+			int hashIndex = hash(pageno);
+			int frameIndex = directory[hashIndex].frame_number;
 
 			// if page in buffer pool, increment pin_count
-			if (frame_index > -1) {
+			if (directory[hashIndex].page_number == pageno && frameIndex != -1) {
 
 				// if pin_count was 0, remove from replace candidates
-				if (bufDescr[frame_index].pin_count == 0) {
+				if (bufDescr[frameIndex].pin_count == 0) {
 					numUnpinned--;
-					replace[hash_index] = new PageId();e
+					replace[hashIndex] = new PageId();
 				}
 
-				bufDescr[frame_index].pin_count++;
+				bufDescr[frameIndex].pin_count++;
 
 				// add reference time
 				for (int i=0; i<ref_size; i++) {
-					if (ref[hash_index][i] == -1) {
-						ref[hash_index][i] = time;
+					if (ref[hashIndex][i] == -1) {
+						ref[hashIndex][i] = time;
 						break;
 					}
 				}
@@ -136,111 +137,110 @@ public class BufMgr {
 
 			// otherwise, replace a frame by this page
 			else {
+numUnpinned--;
 
-				numUnpinned--;
-
-				// calculate CRF for each page
-				for (int i=0; i<numpages; i++) {
-					crf[i] = 0.0f;
-
-					for (int j=0; j<ref_size; j++) {
-						if (ref[i][j] > 0) {
-							crf[i] += 1.0f/(time -ref[i][j] +1.0f);
-						}
-					}
+				// calculate CRF for each page frame
+				for (int i=0;i<htsize;i++) {
+					crf[i]=-1.0f;
 				}
 
-				// obtain a page with min CRF
-				float min = crf[0];
-				int page_replace = 0;
+				for (int i=0;i<numbufs;i++) {
+					PageId currPage = bufDescr[i].page_number;
 
-				for (int i=0; i<numpages; i++) {
-					if (crf[i] < min) {
-						min = crf[i];
-						page_replace = i;
-					}
-				}
-
-				int frame_index_replace = directory[page_replace].frame_number;
-
-				// this frame was holding a page
-				if (frame_index_replace != -1) {
-
-					// if dirtybit = 1, flush page to disk
-					if (bufDescr[frame_index_replace].dirtybit == true) {
-						flushPage(bufDescr[frame_index_replace].page_number);
-					}
-
-					// clear hash entry
-					directory[page_replace].page_number = new PageId();
-					directory[page_replace].frame_number = -1;
-
-					// clear references
-					for (int j=0; j<ref_size; j++) {
-						ref[page_replace][j] = -1;
-					}
-
-					// update the directory
-					directory[hash_index].page_number = pageno;
-					directory[hash_index].frame_number = frame_index_replace;
-
-					// update this frame's description
-					bufDescr[frame_index_replace].page_number = pageno;
-					bufDescr[frame_index_replace].pin_count = 1;
-					bufDescr[frame_index_replace].dirtybit = false;
-
-					// read page content
-					Minibase.DiskManager.read_page(pageno, page);
-
-					// write page content to this frame
-					byte[] data = page.getData();
-
-					for (int j=0; j<GlobalConst.PAGE_SIZE; j++) {
-						bufData[GlobalConst.PAGE_SIZE*frame_index_replace +j] = data[j];
-					}
-				}
-
-				// otherwise, pick an empty frame
-				else {
-
-					for (int i=0; i<numbufs; i++) {
-						if (bufDescr[i].page_number.pid == -1) {
-
-							// update the directory
-							directory[hash_index].page_number = pageno;
-							directory[hash_index].frame_number = i;
-
-							// update this frame's description
-							bufDescr[i].page_number = pageno;
-							bufDescr[i].pin_count = 1;
-							bufDescr[i].dirtybit = false;
-
-							// read page content
-							Minibase.DiskManager.read_page(pageno, page);
-
-							// write page content to this frame
-							byte[] data = page.getData();
-
-							for (int j=0; j<GlobalConst.PAGE_SIZE; j++) {
-								bufData[GlobalConst.PAGE_SIZE*i +j] = data[j];
+					// this frame is holding a page
+					if (currPage.pid != -1) {
+						int hashed = hash(currPage);
+						crf[hashed] = 0.0f;
+						for (int j=0; j<ref_size; j++) {
+							if (ref[hashed][j] != -1) {
+/*
+* buggy spot. The references are now showing
+*/
+								crf[hashed] += 1.0f/(time -ref[hashed][j] +1.0f);
 							}
-
-							break;
 						}
 					}
 				}
+
+				// calculate min CRF
+				float min = 999.9f;
+				int frameIndexToReplace = -1;
+				int hashedPageIndexToReplace = -1;
+
+				for (int i=0;i<numbufs;i++) {
+					PageId currPage = bufDescr[i].page_number;
+
+					if (currPage.pid != -1) {
+					int hashed = hash(currPage);
+						if (crf[hashed] < min) {
+							min = crf[hashed];
+							frameIndexToReplace = i;
+							hashedPageIndexToReplace = hashed;
+						}
+					}
+
+					// if any empty frame exists, pick this frame
+					else {
+						if (-1.0f < min) {
+							min = -1.0f;
+							frameIndexToReplace = i;
+							hashedPageIndexToReplace = -1;
+						}
+					}
+				}
+
+				// if the page on this frame was dirty, flush page to disk
+				if (bufDescr[frameIndexToReplace].page_number.pid != -1) {
+					if (bufDescr[frameIndexToReplace].dirtybit == true) {
+						flushPage(bufDescr[frameIndexToReplace].page_number);
+					}
+				}
+
+				// update the directory
+				directory[hashIndex].page_number = pageno;
+				directory[hashIndex].frame_number = frameIndexToReplace;
+
+if (hashedPageIndexToReplace != -1) {
+
+				// clear hash entry
+				directory[hashedPageIndexToReplace].page_number = new PageId();
+				directory[hashedPageIndexToReplace].frame_number = -1;
+
+				// clear previous reference
+				for (int i=0; i<ref_size; i++) {
+					ref[hashedPageIndexToReplace][i] = -1;
+				}
+
+				// remove previous page from replace candidates
+				replace[hashedPageIndexToReplace] = new PageId();
+}
+
+//System.out.print("R: "+pageno.pid + " at " + frameIndexToReplace+"; ");
+
+				// update this frame's description
+				bufDescr[frameIndexToReplace].page_number = pageno;
+				bufDescr[frameIndexToReplace].pin_count = 1;
+				bufDescr[frameIndexToReplace].dirtybit = false;
 
 				// update references
 				for (int i=0; i<ref_size; i++) {
-					ref[hash_index][i] = -1;
+					ref[hashIndex][i] = -1;
 				}
-				ref[hash_index][0] = time;
+				ref[hashIndex][0] = time;
 
-				// remove this page from replace candidates
-				replace[hash_index] = new PageId();
+				// remove new page from replace candidates
+				replace[hashIndex] = new PageId();
 
-				time++;
+				// read/write page content
+				Minibase.DiskManager.read_page(pageno, page);
+
+				byte[] data = page.getData();
+				for (int j=0; j<GlobalConst.PAGE_SIZE; j++) {
+					bufData[GlobalConst.PAGE_SIZE*frameIndexToReplace +j] = data[j];
+				}
 			}
+
+			time++;
 		}
 	};
 
@@ -250,32 +250,33 @@ public class BufMgr {
 	*/
 	public void unpinPage(PageId pageno, boolean dirty) 
 		throws PageUnpinnedException {
-		if (f == true && ff == true) {
+
+if (f==true && ff == true){
 
 			// find frame number
-			int hash_index = hash(pageno);
-			PageId page_id = directory[hash_index].page_number;
-			int frame_index = directory[hash_index].frame_number;
+			int hashIndex = hash(pageno);
+			PageId page_id = directory[hashIndex].page_number;
+			int frameIndex = directory[hashIndex].frame_number;
 
 			// check if this page is in buffer pool
-			if (page_id == pageno && frame_index > -1) {
+			if (page_id == pageno && frameIndex > -1) {
 
 				// throw exception when try to unpin a page that is not pinned
-				if (bufDescr[frame_index].pin_count == 0) {
+				if (bufDescr[frameIndex].pin_count == 0) {
 					throw new PageUnpinnedException (null, "bufmgr: PageUnpinnedException.");
 				}
 
 				// set dirty bit if page is already modified
 				if (dirty == true) {
-					bufDescr[frame_index].dirtybit = true;
+					bufDescr[frameIndex].dirtybit = true;
 				}
 
-				bufDescr[frame_index].pin_count--;
+				bufDescr[frameIndex].pin_count--;
 
 				// add this page to replace candidates if decrementing pin_count results in 0
-				if (bufDescr[frame_index].pin_count == 0) {
+				if (bufDescr[frameIndex].pin_count == 0) {
 					numUnpinned++;
-					replace[hash_index] = pageno;
+					replace[hashIndex] = pageno;
 				}
 			}
 		}
@@ -287,9 +288,6 @@ public class BufMgr {
 	*/
 	public PageId newPage(Page firstpage, int howmany)
 		throws ChainException, IOException {
-//System.out.println(":new");
-
-		f = true;
 
 		// initialize directory
 		// pick min prime number >= howmany
@@ -325,20 +323,20 @@ public class BufMgr {
 		numpages = htsize;
 
 		// initialize replacement candidates
-		replace = new PageId[numpages];
+		replace = new PageId[htsize];
 		for (int i=0; i<replace.length; i++) {
 			replace[i] = new PageId();
 		}
 
 		// initialize CRF
-		crf = new float[numpages];
-		for (int i=0; i<crf.length; i++) {
+		crf = new float[htsize];
+		for (int i=0; i<htsize; i++) {
 			crf[i] = -1.0f;
 		}
 
 		// initialize ref
-		ref = new int[numpages][ref_size];
-		for (int i=0; i<ref.length; i++) {
+		ref = new int[htsize][ref_size];
+		for (int i=0; i<htsize; i++) {
 			for (int j=0; j<ref_size; j++) {
 				ref[i][j] = -1;
 			}
@@ -347,33 +345,32 @@ public class BufMgr {
 		// initialize time
 		time = 1;
 
-
 		// allocate pages to disk
-		ff = false;
+ff=false;
 		PageId pageno = Minibase.DiskManager.allocate_page(howmany);
-		ff = true;
+ff=true;
 
 		// check if buffer pool is full
 		boolean isNotFull = true;
 		for (int i=0; i<bufDescr.length; i++) {
-			if (bufDescr[i].page_number.pid > -1) {
+			if (bufDescr[i].page_number.pid != -1) {
 				isNotFull = false;
 				break;
 			}
 		}
 		if (isNotFull = false) {
-			ff = false;
+ff=false;
 			Minibase.DiskManager.deallocate_page(pageno, howmany);
-			ff = true;
+ff=true;
 			return null;
 		}
 
 		// check if page is already allocated
 		for (int i=0; i<bufDescr.length; i++) {
 			if (bufDescr[i].page_number == pageno) {
-				ff = false;
+ff=false;
 				Minibase.DiskManager.deallocate_page(pageno, howmany);
-				ff = true;
+ff=true;
 				return null;
 			}
 		}
@@ -381,32 +378,18 @@ public class BufMgr {
 		// if not, find a frame in the buffer pool
 		for (int i=0; i<bufDescr.length; i++) {
 			if (bufDescr[i].page_number.pid == -1) {
-
-				// update descriptor
-				bufDescr[i].page_number = pageno;
-				bufDescr[i].pin_count = 1;
-				bufDescr[i].dirtybit = false;
-
-				// update hash table
-				int hash_index = hash(pageno);
-				directory[hash_index].page_number = pageno;
-				directory[hash_index].frame_number = i;
-
-				// add page content to buffer
-				byte[] data = firstpage.getData();
-
-				for (int j=0; j<GlobalConst.PAGE_SIZE; j++) {
-					bufData[GlobalConst.PAGE_SIZE*i +j] = data[j];
-				}
-
+f=true;
+ff=true;
+				pinPage(pageno, firstpage, false);
 				Minibase.DiskManager.write_page(pageno, firstpage);
 
-				break;
+				return pageno;
 			}
 		}
 
-		return pageno;
+		return null;
 	};
+
 
 	/*
 		free a single page.
@@ -414,22 +397,36 @@ public class BufMgr {
 	public void freePage(PageId globalPageId)
 		throws ChainException, PagePinnedException {
 
-			if (globalPageId.pid > -1) {
+			if (globalPageId.pid > -1 && globalPageId.pid < htsize) {
+
+				// find frame index				
+				int hashIndex = hash(globalPageId);
+				PageId page_id = directory[hashIndex].page_number;
+				int frameIndex = directory[hashIndex].frame_number;
 
 				// throw exception when this page is already pinned
-				int hash_index = hash(globalPageId);
-				PageId page_id = directory[hash_index].page_number;
-				int frame_index = directory[hash_index].frame_number;
-
-				if (page_id == globalPageId && frame_index > -1) {
-					if (bufDescr[frame_index].pin_count > 0) {
+				if (page_id == globalPageId && frameIndex != -1) {
+					if (bufDescr[frameIndex].pin_count > 0) {
 						throw new PagePinnedException(null, "bufmgr.PagePinnedException");
 					}
-				}
 
-				ff = false;
-				Minibase.DiskManager.deallocate_page(globalPageId);
-				ff = true;
+					// clear info
+					bufDescr[frameIndex].page_number = new PageId();
+					bufDescr[frameIndex].pin_count = 0;
+					bufDescr[frameIndex].dirtybit = false;
+
+					directory[hashIndex].page_number = new PageId();
+					directory[hashIndex].frame_number = -1;
+
+					crf[hashIndex] = -1.0f;
+					for (int i=0; i<ref_size; i++) {
+						ref[hashIndex][i] = -1;
+					}
+
+ff=false;
+					Minibase.DiskManager.deallocate_page(globalPageId);
+ff=true;
+				}
 			}
 	};
 
@@ -454,13 +451,14 @@ public class BufMgr {
 
 				// write page content
 				byte[] data = new byte[GlobalConst.PAGE_SIZE];
-
 				for (int i=0; i<GlobalConst.PAGE_SIZE; i++) {
 					data[i] = bufData[GlobalConst.PAGE_SIZE*frame_index +i];
 				}
 
 				Page page = new Page(data);
+ff=false;
 				Minibase.DiskManager.write_page(pageid, page);
+ff=true;
 			}
 	};
 
@@ -488,7 +486,15 @@ public class BufMgr {
 		returns the number of unpinned pages (in frames).
 	*/
 	public int getNumUnpinned() {
-		return numUnpinned;
+//		return numUnpinned;
+
+int count=0;
+for(int i=0;i<numbufs;i++){
+if(bufDescr[i].pin_count==0){
+count++;
+}
+}
+return count;
 	};
 
 	/*
