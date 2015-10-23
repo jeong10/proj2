@@ -211,7 +211,7 @@ if (hashedPageIndexToReplace != -1) {
 				replace[frameIndexToReplace] = new PageId();
 }
 
-System.out.print("R: "+pageno.pid + " at " + frameIndexToReplace+"; ");
+//System.out.print("R: "+pageno.pid + " at " + frameIndexToReplace+"; ");
 
 				// update this frame's description
 				bufDescr[frameIndexToReplace].page_number = pageno;
