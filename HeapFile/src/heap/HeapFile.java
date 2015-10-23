@@ -83,7 +83,7 @@ public class HeapFile {
 //System.out.println("header pid: " + header.pid);
 
 		//Minibase.DiskManager.write_page(headerPage, header);
-		Minibase.DiskManager.print_space_map();
+		//Minibase.DiskManager.print_space_map();
 		}
 
 		// retrieve pages from given file
@@ -209,105 +209,44 @@ public class HeapFile {
 		throws InvalidUpdateException {
 
 		// find the record
-		PageId pageno = rid.pageno;
+		int pageno = rid.pageno.pid;
 		int slotno = rid.slotno;
 
-System.out.println("Trying to update " + pageno + ", " + slotno);
+//System.out.println("Trying to update " + pageno + ", " + slotno);
 
 		int hashIndex = hash(rid);
 		Tuple tuple = records[hashIndex].tuple;
 
-		int dirIndex = pageno.pid / numDir;
-		int pageIndex = pageno.pid % numDir;
+		byte[] currData = tuple.getTupleByteArray();
+		byte[] newData = newRecord.getTupleByteArray();
+
+		int dirIndex = pageno / numDir;
+		int pageIndex = pageno % numDir;
 		HFPage hfp = dir[dirIndex].pageLocation[pageIndex];
 
-		// if previous record length > newRecord.length
-		// update in the same page
-		if (tuple.getTupleByteArray().length > newRecord.getTupleByteArray().length) {
-			hfp.updateRecord(rid, newRecord);
-			return true;
+		// throw exception if the length of new tuple is different from original one
+		if (newData.length != currData.length) {
+			throw new InvalidUpdateException(null, "heapfile: InvalidUpdateException");
 		}
 
-		// if free_space < newRecord.length
-		// delete current record and insert in another page
-		else if (dir[dirIndex].free_space[pageIndex] <= (newRecord.getTupleByteArray().length - tuple.getTupleByteArray().length)) {
-			hfp.deleteRecord(rid);
+		// update tuple
+		short offset = hfp.getSlotOffset(slotno);
+		short length = hfp.getSlotLength(slotno);
 
-			// find new place to insert:
-			// first, look for free space in existing pages
-			for (int i=0; i<numDir; i++) {
-				if (dir[i] != null) {
+//System.out.println("record: " + offset + ", " + length);
 
-					for (int j=0; j<numPages; j++) {
-						if (dir[i].pageLocation[j] != null) {
-							if (dir[i].free_space[j] > newRecord.getTupleByteArray().length) {
+		byte[] temp = hfp.selectRecord(rid);
+for (int i=0; i<temp.length; i++){
+//System.out.print(temp[i] + "," + currData[i] + "  ");
+//System.out.print(newData[i] + "," + currData[i] + "  ");
+}
 
-								//	insert record
-								RID tempRid;
-								tempRid = dir[i].pageLocation[j].insertRecord(newRecord.getTupleByteArray());
+		short z=0;
+		rid.writeData(newData, z);
 
-								// update free space
-								dir[i].free_space[j] = dir[i].pageLocation[j].getFreeSpace();
+		records[hashIndex].tuple = newRecord;
 
-								// update tuple
-								int hIndex = hash(tempRid);
-								records[hIndex].rid = tempRid;
-								records[hIndex].tuple = newRecord;
-
-								// remove previous hash entry
-								int prevHashIndex = hash(rid);
-								records[prevHashIndex].rid = null;
-								records[prevHashIndex].tuple = null;
-
-								rid = tempRid;
-
-								return true;
-							}
-						}
-					}
-				}
-			}
-
-			// otherwise, allocate a new HFPage and insert record
-			for (int i=0; i<numDir; i++) {
-				if (dir[i] != null) {
-
-					for (int j=0; j<numPages; j++) {
-						if (dir[i].pageLocation[j] == null) {
-
-							// allocate new HFPage
-							HFPage h2 = new HFPage();
-							dir[i].pageLocation[j] = h2;
-							PageId pid = new PageId(numDir*i + j);
-							h2.setCurPage(pid);
-
-							// insert record
-							RID tempRid;
-							tempRid = h2.insertRecord(newRecord.getTupleByteArray());
-
-							// update free space
-							dir[i].free_space[j] = h2.getFreeSpace();
-
-							// update tuple
-							int hIndex = hash(tempRid);
-							records[hIndex].rid = tempRid;
-							records[hIndex].tuple = newRecord;
-
-							// remove previous hash entry
-							int pHashIndex = hash(rid);
-							records[pHashIndex].rid = null;
-							records[pHashIndex].tuple = null;
-
-							rid = tempRid;
-
-							return true;
-						}
-					}
-				}
-			}
-		}
-
-		return false;
+		return true;
 	};
 
 
