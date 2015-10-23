@@ -57,10 +57,29 @@ public class HeapScan {
 	*/
 	public Tuple getNext(RID rid) {
 
+		HFPage hfp;
+
+		// if rid is empty, point to the very first record
+/*
+		if (rid.pageno.pid == -1) {
+			if (hf.dir != null) {
+				if (hf.dir[0] != null) {
+//System.out.println("null?");
+					hfp = hf.dir[0].pageLocation[0];
+//System.out.println("hfp: "+hfp);
+					RID first = hfp.firstRecord();
+
+					int hashIndex = hf.hash(first);
+System.out.println("first record: " + first.pageno + ", " + first.slotno);
+					return hf.getRecords()[hashIndex].tuple;
+				}
+			}
+		}
+*/
 		// find the record
 		PageId pageno = rid.pageno;
 		int slotno = rid.slotno;
-
+//System.out.println("curr record: " + pageno + ", " + slotno);
 		int dirIndex = pageno.pid / hf.numDir;
 		int pageIndex = pageno.pid % hf.numDir;
 //		HFPage hfp = hf.dir[dirIndex].pageLocation[pageIndex];

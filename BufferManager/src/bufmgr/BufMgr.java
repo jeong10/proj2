@@ -91,11 +91,10 @@ ff=false;
 		throws ChainException, IOException, BufferPoolExceededException, InvalidPageNumberException {
 
 if (f==true && ff==true){
+
 			// throw exception if pid is invalid
-			if (numpages > 0) {
-				if (pageno.pid < 0 || pageno.pid > numpages) {
-					throw new InvalidPageNumberException (null, "bufmgr.InvalidPageNumberException");
-				}
+			if (pageno.pid < 0 || pageno.pid > htsize) {
+				throw new InvalidPageNumberException (null, "bufmgr.InvalidPageNumberException");
 			}
 
 			// throw exception if all pages were already pinned
@@ -121,15 +120,15 @@ if (f==true && ff==true){
 				// if pin_count was 0, remove from replace candidates
 				if (bufDescr[frameIndex].pin_count == 0) {
 					numUnpinned--;
-					replace[hashIndex] = new PageId();
+					replace[frameIndex] = new PageId();
 				}
 
 				bufDescr[frameIndex].pin_count++;
 
 				// add reference time
 				for (int i=0; i<ref_size; i++) {
-					if (ref[hashIndex][i] == -1) {
-						ref[hashIndex][i] = time;
+					if (ref[frameIndex][i] == -1) {
+						ref[frameIndex][i] = time;
 						break;
 					}
 				}
@@ -140,8 +139,8 @@ if (f==true && ff==true){
 numUnpinned--;
 
 				// calculate CRF for each page frame
-				for (int i=0;i<htsize;i++) {
-					crf[i]=-1.0f;
+				for (int i=0;i<crf.length;i++) {
+					crf[i] = -1.0f;
 				}
 
 				for (int i=0;i<numbufs;i++) {
@@ -149,15 +148,11 @@ numUnpinned--;
 
 					// this frame is holding a page
 					if (currPage.pid != -1) {
-						int hashed = hash(currPage);
-						crf[hashed] = 0.0f;
+						crf[i] = 0.0f;
+
 						for (int j=0; j<ref_size; j++) {
-							if (ref[hashed][j] != -1) {
-/*
-* buggy spot. The references do not seemed to be stored
-* where it supposed to be.
-*/
-								crf[hashed] += 1.0f/(time -ref[hashed][j] +1.0f);
+							if (ref[i][j] != -1) {
+								crf[i] += 1.0f/(time -ref[i][j] +1.0f);
 							}
 						}
 					}
@@ -172,9 +167,9 @@ numUnpinned--;
 					PageId currPage = bufDescr[i].page_number;
 
 					if (currPage.pid != -1) {
-					int hashed = hash(currPage);
-						if (crf[hashed] < min) {
-							min = crf[hashed];
+						int hashed = hash(currPage);
+						if (crf[i] < min) {
+							min = crf[i];
 							frameIndexToReplace = i;
 							hashedPageIndexToReplace = hashed;
 						}
@@ -209,14 +204,14 @@ if (hashedPageIndexToReplace != -1) {
 
 				// clear previous reference
 				for (int i=0; i<ref_size; i++) {
-					ref[hashedPageIndexToReplace][i] = -1;
+					ref[frameIndexToReplace][i] = -1;
 				}
 
 				// remove previous page from replace candidates
-				replace[hashedPageIndexToReplace] = new PageId();
+				replace[frameIndexToReplace] = new PageId();
 }
 
-//System.out.print("R: "+pageno.pid + " at " + frameIndexToReplace+"; ");
+System.out.print("R: "+pageno.pid + " at " + frameIndexToReplace+"; ");
 
 				// update this frame's description
 				bufDescr[frameIndexToReplace].page_number = pageno;
@@ -225,12 +220,12 @@ if (hashedPageIndexToReplace != -1) {
 
 				// update references
 				for (int i=0; i<ref_size; i++) {
-					ref[hashIndex][i] = -1;
+					ref[frameIndexToReplace][i] = -1;
 				}
-				ref[hashIndex][0] = time;
+				ref[frameIndexToReplace][0] = time;
 
 				// remove new page from replace candidates
-				replace[hashIndex] = new PageId();
+				replace[frameIndexToReplace] = new PageId();
 
 				// read/write page content
 				Minibase.DiskManager.read_page(pageno, page);
@@ -277,7 +272,7 @@ if (f==true && ff == true){
 				// add this page to replace candidates if decrementing pin_count results in 0
 				if (bufDescr[frameIndex].pin_count == 0) {
 					numUnpinned++;
-					replace[hashIndex] = pageno;
+					replace[frameIndex] = pageno;
 				}
 			}
 		}
@@ -324,20 +319,20 @@ if (f==true && ff == true){
 		numpages = htsize;
 
 		// initialize replacement candidates
-		replace = new PageId[htsize];
+		replace = new PageId[numbufs];
 		for (int i=0; i<replace.length; i++) {
 			replace[i] = new PageId();
 		}
 
 		// initialize CRF
-		crf = new float[htsize];
-		for (int i=0; i<htsize; i++) {
+		crf = new float[numbufs];
+		for (int i=0; i<crf.length; i++) {
 			crf[i] = -1.0f;
 		}
 
 		// initialize ref
-		ref = new int[htsize][ref_size];
-		for (int i=0; i<htsize; i++) {
+		ref = new int[numbufs][ref_size];
+		for (int i=0; i<ref.length; i++) {
 			for (int j=0; j<ref_size; j++) {
 				ref[i][j] = -1;
 			}
@@ -408,6 +403,7 @@ ff=true;
 				// throw exception when this page is already pinned
 				if (page_id == globalPageId && frameIndex != -1) {
 					if (bufDescr[frameIndex].pin_count > 0) {
+//System.out.println("pin: " + globalPageId.pid+ " at " + frameIndex);
 						throw new PagePinnedException(null, "bufmgr.PagePinnedException");
 					}
 
@@ -419,9 +415,9 @@ ff=true;
 					directory[hashIndex].page_number = new PageId();
 					directory[hashIndex].frame_number = -1;
 
-					crf[hashIndex] = -1.0f;
+					crf[frameIndex] = -1.0f;
 					for (int i=0; i<ref_size; i++) {
-						ref[hashIndex][i] = -1;
+						ref[frameIndex][i] = -1;
 					}
 
 ff=false;

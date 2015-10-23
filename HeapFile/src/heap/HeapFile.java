@@ -27,38 +27,6 @@ public class HeapFile {
 	}
 
 	/*
-		Return hash value of this rid.
-	*/
-	public int hash(RID rid) {
-		return rid.hashCode();
-	}
-
-	/*
-		pick min prime number >= val
-	*/
-	public int getPrime(int val) {
-		int minPrime = 0;
-		int ret = val;
-
-		while(true) {
-			boolean isPrime = true;
-
-			for (int j=2; j<ret; j++) {
-				if (ret % j == 0) {
-					isPrime = false;
-					break;
-				}
-			}
-
-			if (isPrime) {
-				return ret;
-			}
-
-			ret++;
-		}
-	}
-
-	/*
 		Page directory class.
 	*/
 	public class directory {
@@ -92,6 +60,7 @@ public class HeapFile {
 	PageId header;
 	Page headerPage;
 
+
 	/*
 		Constructor.
 	*/
@@ -103,18 +72,33 @@ public class HeapFile {
 		header = Minibase.DiskManager.allocate_page();
 		headerPage = new Page();
 		Minibase.DiskManager.read_page(header, headerPage);
+		
 
 		// no such HeapFile exists; create an empty file
 		if (file == null) {
-System.out.println("file empty; create a new file");
-	
+//System.out.println("file empty; create a new file");
+
 			Minibase.DiskManager.add_file_entry(name, header);
 
-System.out.println("header pid: " + header.pid);
+//System.out.println("header pid: " + header.pid);
 
-		//Minibase.DiskManager.write_page(p, header);
+		//Minibase.DiskManager.write_page(headerPage, header);
 		Minibase.DiskManager.print_space_map();
 		}
+
+		// retrieve pages from given file
+		else {
+
+			// load header page
+			PageId headerPid = new PageId();
+			Page headerP = new Page();
+//			Minibase.DiskManager.read_page(file, headerP);
+
+			// load page directory from loaded header file
+
+			// load hash table from loaded header file
+		}
+
 
 		// page directory
 		numDir = 100;
@@ -152,7 +136,7 @@ System.out.println("header pid: " + header.pid);
 							RID rid;
 							rid = dir[i].pageLocation[j].insertRecord(record);
 							numRecord++;
-
+//System.out.println("inserting: " + rid.pageno + ", " + rid.slotno);
 							// update free space
 							dir[i].free_space[j] = dir[i].pageLocation[j].getFreeSpace();
 
@@ -359,7 +343,7 @@ System.out.println("Trying to delete " + pageno + ", " + slotno);
 
 
 	/*
-		return the number of records
+		return the number of records.
 	*/
 	public int getRecCnt() {
 		return numRecord;
@@ -374,6 +358,37 @@ System.out.println("Trying to delete " + pageno + ", " + slotno);
 		return hs;
 	};
 
+	/*
+		return hash value of this rid.
+	*/
+	public int hash(RID rid) {
+		return rid.hashCode();
+	}
+
+	/*
+		pick min prime number >= val.
+	*/
+	public int getPrime(int val) {
+		int minPrime = 0;
+		int ret = val;
+
+		while(true) {
+			boolean isPrime = true;
+
+			for (int j=2; j<ret; j++) {
+				if (ret % j == 0) {
+					isPrime = false;
+					break;
+				}
+			}
+
+			if (isPrime) {
+				return ret;
+			}
+
+			ret++;
+		}
+	}
 
 	/*
 		get header pageid.
@@ -388,5 +403,12 @@ System.out.println("Trying to delete " + pageno + ", " + slotno);
 	*/
 	public Page getHeaderPage() {
 		return headerPage;
+	}
+
+	/*
+		get hash table of <RID, Tuple> pairs.
+	*/
+	public record[] getRecords() {
+		return records;
 	}
 }
