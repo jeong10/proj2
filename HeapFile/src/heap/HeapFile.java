@@ -208,11 +208,8 @@ public class HeapFile {
 	public boolean updateRecord(RID rid, Tuple newRecord)
 		throws InvalidUpdateException {
 
-		// find the record
 		int pageno = rid.pageno.pid;
 		int slotno = rid.slotno;
-
-//System.out.println("Trying to update " + pageno + ", " + slotno);
 
 		int hashIndex = hash(rid);
 		Tuple tuple = records[hashIndex].tuple;
@@ -220,6 +217,7 @@ public class HeapFile {
 		byte[] currData = tuple.getTupleByteArray();
 		byte[] newData = newRecord.getTupleByteArray();
 
+		// find the record
 		int dirIndex = pageno / numDir;
 		int pageIndex = pageno % numDir;
 		HFPage hfp = dir[dirIndex].pageLocation[pageIndex];
@@ -230,21 +228,7 @@ public class HeapFile {
 		}
 
 		// update tuple
-		short offset = hfp.getSlotOffset(slotno);
-		short length = hfp.getSlotLength(slotno);
-
-//System.out.println("record: " + offset + ", " + length);
-
-		byte[] temp = hfp.selectRecord(rid);
-for (int i=0; i<temp.length; i++){
-//System.out.print(temp[i] + "," + currData[i] + "  ");
-//System.out.print(newData[i] + "," + currData[i] + "  ");
-}
-
-		short z=0;
-		rid.writeData(newData, z);
-
-		records[hashIndex].tuple = newRecord;
+		tuple.setTupleByteArray(newData);
 
 		return true;
 	};
@@ -255,16 +239,15 @@ for (int i=0; i<temp.length; i++){
 	*/
 	public boolean deleteRecord(RID rid) {
 
-		// find the record
 		int pageno = rid.pageno.pid;
 		int slotno = rid.slotno;
 
-//System.out.println("Trying to delete " + pageno + ", " + slotno);
-
+		// find the record
 		int dirIndex = pageno / numDir;
 		int pageIndex = pageno % numDir;
 		HFPage hfp = dir[dirIndex].pageLocation[pageIndex];
 
+		// delete it
 		hfp.deleteRecord(rid);
 		numRecord--;
 
@@ -352,12 +335,14 @@ for (int i=0; i<temp.length; i++){
 	}
 
 	/*
+		get total number of page directories.
 	*/
 	public int getNumDir() {
 		return numDir;
 	}
 
 	/*
+		get total number of pages within a single directory.
 	*/
 	public int getNumPages() {
 		return numPages;
