@@ -7,15 +7,12 @@ import global.RID;
 import global.Page;
 import global.PageId;
 
-import java.io.*;
-
 import chainexception.ChainException;
+
 
 public class HeapFile {
 
-	/*
-		Hash table of <RID, Tuple> pairs.
-	*/
+	// Hash table of <RID, Tuple> pairs.
 	public class record {
 		RID rid;
 		Tuple tuple;
@@ -26,9 +23,7 @@ public class HeapFile {
 		};
 	}
 
-	/*
-		Page directory class.
-	*/
+	// Page directory class.
 	public class directory {
 
 		HFPage[] pageLocation;
@@ -123,6 +118,12 @@ public class HeapFile {
 	*/
 	public RID insertRecord(byte[] record)
 		throws SpaceNotAvailableException {
+
+		// throw exception if the size of record is too large
+		if (record.length > GlobalConst.MAX_TUPSIZE) {
+			throw new SpaceNotAvailableException("heap.SpaceNotAvailableException");
+		}
+
 		
 		// first, look for free space in existing pages
 		for (int i=0; i<numDir; i++) {
@@ -136,7 +137,7 @@ public class HeapFile {
 							RID rid;
 							rid = dir[i].pageLocation[j].insertRecord(record);
 							numRecord++;
-//System.out.println("inserting: " + rid.pageno + ", " + rid.slotno);
+
 							// update free space
 							dir[i].free_space[j] = dir[i].pageLocation[j].getFreeSpace();
 
@@ -165,9 +166,6 @@ public class HeapFile {
 						dir[i].pageLocation[j] = hfp;
 						PageId pid = new PageId(numDir*i + j);
 						hfp.setCurPage(pid);
-//System.out.println("inserting in new HFPage " + hfp.getCurPage());
-//String s = String.valueOf(hfp);
-//System.out.println("addr: " + s);
 
 						// insert record
 						RID rid;
@@ -222,9 +220,9 @@ public class HeapFile {
 		int pageIndex = pageno % numDir;
 		HFPage hfp = dir[dirIndex].pageLocation[pageIndex];
 
-		// throw exception if the length of new tuple is different from original one
-		if (newData.length != currData.length) {
-			throw new InvalidUpdateException(null, "heapfile: InvalidUpdateException");
+		// throw exception if the length of new tuple is different from the original one
+		if (newRecord.getLength() != tuple.getLength()) {
+			throw new InvalidUpdateException ();
 		}
 
 		// update tuple

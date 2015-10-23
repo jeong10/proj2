@@ -7,14 +7,9 @@ import global.RID;
 import global.Page;
 import global.PageId;
 
-import java.io.IOException;
-
 import chainexception.ChainException;
 
 
-/*
-	HeapScan class.
-*/
 public class HeapScan {
 
 	HeapFile hf;
@@ -25,6 +20,7 @@ public class HeapScan {
 
 	RID currRid;
 	RID nextRid;
+
 
 	/*
 		Constructor.
@@ -49,7 +45,7 @@ public class HeapScan {
 	*/
 	protected void finalize()
 		throws Throwable {
-//System.out.println("finalize");
+
 	};
 
 
@@ -57,13 +53,7 @@ public class HeapScan {
 		check if more records left to scan.
 	*/
 	public boolean hasNext() {
-
-		boolean isNoneLeft = true;
-
-		if (scanRemaining == 0)
-			isNoneLeft = false;
-
-		return isNoneLeft;
+		return !(scanRemaining == 0);
 	};
 
 
@@ -72,7 +62,7 @@ public class HeapScan {
 	*/
 	public Tuple getNext(RID rid) {
 
-		// scanned all; unpin and return
+		// scanned all; unpin the page and return
 		if (scanRemaining == 0) {
 
 			scannedRecord = 0;
@@ -83,9 +73,10 @@ public class HeapScan {
 			return null;
 		}
 
+
 		HFPage hfp;
 
-		// set up variables if first time
+		// set up variables if the scan runs for the first time
 		if (first == true) {
 			first = false;
 			currRid = rid;
@@ -98,14 +89,12 @@ public class HeapScan {
 			currRid = nextRid;
 			rid.copyRID(nextRid);
 
-//System.out.println("record: " + rid.pageno.pid + ", " + rid.slotno +
-//	" with " + scannedRecord+ " scanned");
-
 			scannedRecord++;
 			scanRemaining--;
 
 			return hf.getRecords()[hashIndex].tuple;
 		}
+
 
 		int pageLocation = currRid.pageno.pid;
 		int dirLocation = pageLocation / hf.getNumDir();
@@ -167,9 +156,6 @@ public class HeapScan {
 
 		scannedRecord++;
 		scanRemaining--;
-
-//		System.out.println("record: " + rid.pageno.pid + ", " + rid.slotno +
-//		" with " + scannedRecord+ " scanned");
 
 		return hf.getRecords()[hashIndex].tuple;
 	}
