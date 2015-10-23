@@ -317,13 +317,13 @@ System.out.println("Trying to update " + pageno + ", " + slotno);
 	public boolean deleteRecord(RID rid) {
 
 		// find the record
-		PageId pageno = rid.pageno;
+		int pageno = rid.pageno.pid;
 		int slotno = rid.slotno;
 
-System.out.println("Trying to delete " + pageno + ", " + slotno);
+//System.out.println("Trying to delete " + pageno + ", " + slotno);
 
-		int dirIndex = pageno.pid / numDir;
-		int pageIndex = pageno.pid % numDir;
+		int dirIndex = pageno / numDir;
+		int pageIndex = pageno % numDir;
 		HFPage hfp = dir[dirIndex].pageLocation[pageIndex];
 
 		hfp.deleteRecord(rid);
@@ -410,5 +410,17 @@ System.out.println("Trying to delete " + pageno + ", " + slotno);
 	*/
 	public record[] getRecords() {
 		return records;
+	}
+
+	/*
+	*/
+	public int getNumDir() {
+		return numDir;
+	}
+
+	/*
+	*/
+	public int getNumPages() {
+		return numPages;
 	}
 }

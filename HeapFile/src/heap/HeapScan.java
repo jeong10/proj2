@@ -18,17 +18,29 @@ import chainexception.ChainException;
 public class HeapScan {
 
 	HeapFile hf;
+	boolean first;
+
+	int scannedRecord;
+	int scanRemaining;
+
+	RID currRid;
+	RID nextRid;
 
 	/*
 		Constructor.
 	*/
 	protected HeapScan(HeapFile hf) {
 		this.hf = hf;
+		first = true;
+
+		scannedRecord = 0;
+		scanRemaining = hf.getRecCnt();
+
+		currRid = new RID();
+		nextRid = null;
 
 		// pin directory header page
 		Minibase.BufferManager.pinPage(hf.getHeader(), hf.getHeaderPage(), false);
-
-		// initialize iterator fields
 	};
 
 	
@@ -46,9 +58,12 @@ public class HeapScan {
 	*/
 	public boolean hasNext() {
 
-		boolean none = false;
+		boolean isNoneLeft = true;
 
-		return none;
+		if (scanRemaining == 0)
+			isNoneLeft = false;
+
+		return isNoneLeft;
 	};
 
 
@@ -57,48 +72,115 @@ public class HeapScan {
 	*/
 	public Tuple getNext(RID rid) {
 
+		// scanned all; unpin and return
+		if (scanRemaining == 0) {
+
+			scannedRecord = 0;
+			scanRemaining = hf.getRecCnt();
+
+			Minibase.BufferManager.unpinPage(hf.getHeader(), false);
+
+			return null;
+		}
+
 		HFPage hfp;
 
-		// if rid is empty, point to the very first record
-/*
-		if (rid.pageno.pid == -1) {
-			if (hf.dir != null) {
-				if (hf.dir[0] != null) {
-//System.out.println("null?");
-					hfp = hf.dir[0].pageLocation[0];
-//System.out.println("hfp: "+hfp);
-					RID first = hfp.firstRecord();
+		// set up variables if first time
+		if (first == true) {
+			first = false;
+			currRid = rid;
 
-					int hashIndex = hf.hash(first);
-System.out.println("first record: " + first.pageno + ", " + first.slotno);
-					return hf.getRecords()[hashIndex].tuple;
+			// if rid is empty, point to the very first record
+			hfp = hf.dir[0].pageLocation[0];
+			nextRid = hfp.firstRecord();
+
+			int hashIndex = hf.hash(nextRid);
+			currRid = nextRid;
+			rid.copyRID(nextRid);
+
+//System.out.println("record: " + rid.pageno.pid + ", " + rid.slotno +
+//	" with " + scannedRecord+ " scanned");
+
+			scannedRecord++;
+			scanRemaining--;
+
+			return hf.getRecords()[hashIndex].tuple;
+		}
+
+		int pageLocation = currRid.pageno.pid;
+		int dirLocation = pageLocation / hf.getNumDir();
+		hfp = hf.dir[dirLocation].pageLocation[pageLocation];
+
+		nextRid = hfp.nextRecord(currRid);
+		if (nextRid == null) {
+			
+			// rid is the last record of this HFPage
+			// search for next HFPage within this directory
+			// if not found, search for next directory
+			boolean found = false;
+			for (int d=dirLocation; d<hf.getNumDir(); d++){
+				for (int i=pageLocation+1; i<hf.getNumPages(); i++) {
+					HFPage currHFP = hf.dir[d].pageLocation[i];
+
+					if (currHFP != null) {
+						RID temp = currHFP.firstRecord();
+						if (temp != null) {
+							found = true;
+							nextRid = temp;
+							break;
+						}
+					}
+				}
+			}
+
+			// search from the beginning
+			if (found == false) {
+
+				for (int d=0; d<=dirLocation; d++) {
+					for (int i=0; i<hf.getNumPages(); i++) {
+						HFPage currHFP = hf.dir[d].pageLocation[i];
+
+						if (currHFP != null) {
+							RID temp = currHFP.firstRecord();
+
+							// the rid found is the same as the given rid,
+							// we made a full round of scanning; return null
+							if (temp != null) {
+								if (temp == rid) {
+									return null;
+								}
+								else {
+									found = true;
+									nextRid = temp;
+									break;
+								}
+							}
+						}
+					}
 				}
 			}
 		}
-*/
-		// find the record
-		PageId pageno = rid.pageno;
-		int slotno = rid.slotno;
-//System.out.println("curr record: " + pageno + ", " + slotno);
-		int dirIndex = pageno.pid / hf.numDir;
-		int pageIndex = pageno.pid % hf.numDir;
-//		HFPage hfp = hf.dir[dirIndex].pageLocation[pageIndex];
 
-//		boolean next = hfp.hasNext(rid);
-		boolean next = false;
-		if (next == false) {
-			Minibase.BufferManager.unpinPage(hf.getHeader(), false);
-		}
+		int hashIndex = hf.hash(nextRid);
+		currRid = nextRid;
+		rid.copyRID(nextRid);
 
-		return null;
+		scannedRecord++;
+		scanRemaining--;
+
+//		System.out.println("record: " + rid.pageno.pid + ", " + rid.slotno +
+//		" with " + scannedRecord+ " scanned");
+
+		return hf.getRecords()[hashIndex].tuple;
 	}
 
 
 	/*
-		unpin any pinned pages.
+		close the scan.
 	*/
 	public void close()
 		throws ChainException {
-//System.out.println("closing");
+			first = true;
+			scannedRecord = hf.getRecCnt() - scanRemaining;
 	};
 }
